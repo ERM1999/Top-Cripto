@@ -2,6 +2,7 @@ import threading
 import json
 import flet as ft
 from kafka import KafkaConsumer
+from collections import deque
 
 class AppCripto:
     def __init__(self, pagina: ft.Page):
@@ -19,10 +20,39 @@ class AppCripto:
         self.pagina.window_height = 700
 
         # Estructuras de control de datos históricos y récords financieros
-        self.puntos_grafico = []
+        # Uso de deque con maxlen=12 para optimizar la gestión de puntos del gráfico
+        self.puntos_grafico = deque(maxlen=12)
         self.contador_tiempo = 0
         self.record_historico = 69000.00  # Umbral para batir récord
 
+        # Diccionarios de estilos para limpiar condicionales anidados
+        self.TENDENCIA_ESTILOS = {
+            "Alcista": {
+                "color": "green",
+                "icon": ft.icons.TRENDING_UP,
+                "linea_color": "green"
+            },
+            "Bajista": {
+                "color": "red",
+                "icon": ft.icons.TRENDING_DOWN,
+                "linea_color": "red"
+            }
+        }
+
+        self.VOLATILIDAD_ESTILOS = {
+            "Alta": {
+                "color": "red",
+                "icon": ft.icons.WARNING_ROUNDED
+            },
+            "Media": {
+                "color": "orange",
+                "icon": ft.icons.EQUALIZER
+            },
+            "Baja": {
+                "color": "green",
+                "icon": ft.icons.TRENDING_FLAT
+            }
+        }
   
         # pagina principal -  valores por defecto antes de que se actualicen con kafka
         self.texto_precio = ft.Text("€67,500", size=38, weight="bold", color="white")
@@ -42,7 +72,7 @@ class AppCripto:
 
         # grafico
         self.linea_datos = ft.LineChartData(
-            data_points=self.puntos_grafico,
+            data_points=list(self.puntos_grafico),
             stroke_width=3,
             color=self.color_acento,
             curved=True,
@@ -188,7 +218,7 @@ class AppCripto:
                             spacing=5,
                             controls=[
                                 ft.Row([ft.Icon(ft.icons.ACCOUNT_BALANCE_WALLET, color=self.color_acento, size=18), ft.Text("Capitalización de Mercado", color="white", weight="bold")]),
-                                ft.Text("Es el valor total en euros de todos los Bitcoins que existen en circulación. Se calcula multiplicando el precio actual por el suministro disponible. Indica el tamaño global del activo.", color="grey", size=13)
+                                ft.Text("Es el valor total en euros de todos los Bitcoins que existen en circulación. Se calcula multiplicando el precio actual por el suministro disponible. Indica el tamaño real del mercado.")
                             ]
                         )
                     ),
@@ -200,7 +230,7 @@ class AppCripto:
                             spacing=5,
                             controls=[
                                 ft.Row([ft.Icon(ft.icons.INSERT_CHART_OUTLINED, color="blue", size=18), ft.Text("Volumen (24h)", color="white", weight="bold")]),
-                                ft.Text("Mide la cantidad total de dinero que se ha movido en compras y ventas de Bitcoin durante el último día. Un volumen alto significa que hay mucho interés y liquidez en el mercado.", color="grey", size=13)
+                                ft.Text("Mide la cantidad total de dinero que se ha movido en compras y ventas de Bitcoin durante el último día. Un volumen alto significa que hay mucho interés y liquidez.")
                             ]
                         )
                     ),
@@ -212,7 +242,7 @@ class AppCripto:
                             spacing=5,
                             controls=[
                                 ft.Row([ft.Icon(ft.icons.TRENDING_UP, color="green", size=18), ft.Text("Tendencia (Alcista / Bajista)", color="white", weight="bold")]),
-                                ft.Text("El sistema evalúa el porcentaje de cambio diario. Si el precio ha subido respecto al día anterior la tendencia es Alcista (Verde); si ha bajado, es Bajista (Rojo).", color="grey", size=13)
+                                ft.Text("El sistema evalúa el porcentaje de cambio diario. Si el precio ha subido respecto al día anterior la tendencia es Alcista (Verde); si ha bajado, es Bajista (Rojo).")
                             ]
                         )
                     ),
@@ -224,7 +254,7 @@ class AppCripto:
                             spacing=5,
                             controls=[
                                 ft.Row([ft.Icon(ft.icons.WARNING_ROUNDED, color="orange", size=18), ft.Text("Volatilidad (Alta / Media / Baja)", color="white", weight="bold")]),
-                                ft.Text("Mide la fuerza y velocidad con la que cambia el precio. Nuestro algoritmo local la clasifica como 'Alta' si el precio varía más de un 3% en el día, alertando de posibles riesgos.", color="grey", size=13)
+                                ft.Text("Mide la fuerza y velocidad con la que cambia el precio. Nuestro algoritmo local la clasifica como 'Alta' si el precio varía más de un 3% en el día, 'Media' entre 1-3% y 'Baja' si es menor.")
                             ]
                         )
                     ),
@@ -236,7 +266,7 @@ class AppCripto:
                             spacing=5,
                             controls=[
                                 ft.Row([ft.Icon(ft.icons.STAR, color="gold", size=18), ft.Text("Máximo Histórico (ATH)", color="white", weight="bold")]),
-                                ft.Text("Representa el precio más alto jamás alcanzado por Bitcoin. La aplicación controla este valor en tiempo real: si el flujo de Kafka supera el récord actual, la pantalla se iluminará en color oro celebrando el nuevo hito.", color="grey", size=13)
+                                ft.Text("Representa el precio más alto jamás alcanzado por Bitcoin. La aplicación controla este valor en tiempo real: si el flujo de Kafka supera el récord actual, se actualiza automáticamente.")
                             ]
                         )
                     ),
@@ -329,39 +359,25 @@ class AppCripto:
                 self.texto_tendencia.value = nueva_tendencia
                 self.texto_volatilidad.value = nueva_volatilidad
                 
-                # Adaptación de estilos visuales e iconos según la dirección del mercado
-                if nueva_tendencia == "Alcista":
-                    self.texto_tendencia.color = "green"
-                    self.icono_tendencia.icon = ft.icons.TRENDING_UP
-                    self.icono_tendencia.icon_color = "green"
-                    self.linea_datos.color = "green"  # Modificamos el color del gráfico a verde
-                else:
-                    self.texto_tendencia.color = "red"
-                    self.icono_tendencia.icon = ft.icons.TRENDING_DOWN
-                    self.icono_tendencia.icon_color = "red"
-                    self.linea_datos.color = "red"    # Modificamos el color del gráfico a rojo
+                # Adaptación de estilos visuales e iconos según la dirección del mercado usando diccionario
+                if nueva_tendencia in self.TENDENCIA_ESTILOS:
+                    estilos_tendencia = self.TENDENCIA_ESTILOS[nueva_tendencia]
+                    self.texto_tendencia.color = estilos_tendencia["color"]
+                    self.icono_tendencia.icon = estilos_tendencia["icon"]
+                    self.icono_tendencia.icon_color = estilos_tendencia["color"]
+                    self.linea_datos.color = estilos_tendencia["linea_color"]
                     
-                # Clasificación visual y nivelación de la volatilidad del mercado
-                if nueva_volatilidad == "Alta":
-                    self.texto_volatilidad.color = "red"
-                    self.icono_volatilidad.icon = ft.icons.WARNING_ROUNDED
-                    self.icono_volatilidad.icon_color = "red"
-                elif nueva_volatilidad == "Media":
-                    self.texto_volatilidad.color = "orange"
-                    self.icono_volatilidad.icon = ft.icons.EQUALIZER
-                    self.icono_volatilidad.icon_color = "orange"
-                else:
-                    self.texto_volatilidad.color = "green"
-                    self.icono_volatilidad.icon = ft.icons.TRENDING_FLAT
-                    self.icono_volatilidad.icon_color = "green"
+                # Clasificación visual y nivelación de la volatilidad del mercado usando diccionario
+                if nueva_volatilidad in self.VOLATILIDAD_ESTILOS:
+                    estilos_volatilidad = self.VOLATILIDAD_ESTILOS[nueva_volatilidad]
+                    self.texto_volatilidad.color = estilos_volatilidad["color"]
+                    self.icono_volatilidad.icon = estilos_volatilidad["icon"]
+                    self.icono_volatilidad.icon_color = estilos_volatilidad["color"]
 
-                # Actualizacion de la gráfica
+                # Actualizacion de la gráfica con deque automático
                 self.contador_tiempo += 1
                 self.puntos_grafico.append(ft.LineChartDataPoint(self.contador_tiempo, precio_numerico))
-                
-                # Mantener ventana de memoria máxima de 12 puntos en pantalla para optimizar renderizado
-                if len(self.puntos_grafico) > 12:
-                    self.puntos_grafico.pop(0)
+                self.linea_datos.data_points = list(self.puntos_grafico)
                 
                 # Consolidamos las actualizaciones modificadas en la UI mediante un renderizado unificado
                 self.pagina.update()
